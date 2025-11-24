@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Record, Media } from '../types';
+import type { Record, Media } from '../types';
 import { getAllRecords, getMedia, deleteRecord } from '../services/indexedDB';
 import { formatBytes } from '../utils/compression';
 

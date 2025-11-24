@@ -1,4 +1,4 @@
-import { StorageStats, StorageSettings } from '../types';
+import type { StorageStats, StorageSettings } from '../types';
 import {
   calculateStorageSize,
   getSetting,

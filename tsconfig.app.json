@@ -5,7 +5,6 @@
     "useDefineForClassFields": true,
     "lib": ["ES2022", "DOM", "DOM.Iterable"],
     "module": "ESNext",
-    "types": ["vite/client"],
     "skipLibCheck": true,
 
     /* Bundler mode */
@@ -22,7 +21,10 @@
     "noUnusedParameters": true,
     "erasableSyntaxOnly": true,
     "noFallthroughCasesInSwitch": true,
-    "noUncheckedSideEffectImports": true
+    "noUncheckedSideEffectImports": true,
+
+    /* Fix: Add vite-plugin-pwa/client here */
+    "types": ["vite/client", "vite-plugin-pwa/client"]
   },
   "include": ["src"]
 }

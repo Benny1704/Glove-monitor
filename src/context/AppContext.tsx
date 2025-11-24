@@ -1,5 +1,5 @@
-import React, { createContext, useContext, useReducer, ReactNode } from 'react';
-import { Record } from '../types';
+import React, { createContext, useContext, useReducer, type ReactNode } from 'react';
+import type { Record } from '../types';
 
 interface AppState {
   records: Record[];

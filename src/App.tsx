@@ -10,12 +10,11 @@ import { initDB, addRecord, addMedia } from './services/indexedDB';
 import { ensureStorageSpace, isStorageWarning } from './services/storageManager';
 import { saveAndQueueRecord } from './services/uploadManager';
 import { showLocalNotification, notificationTemplates } from './services/notificationService';
-import { Record, Media, FormData as RecordFormData } from './types';
+import type { Record, Media, FormData as RecordFormData } from './types';
 import { generateUUID } from './utils/uuid';
 import { estimateMetadataSize } from './utils/compression';
 import './index.css';
 
-// Home page with camera
 const HomePage: React.FC = () => {
   const navigate = useNavigate();
   const [showCamera, setShowCamera] = useState(false);
@@ -29,16 +28,12 @@ const HomePage: React.FC = () => {
   const handlePhotoCapture = async (blob: Blob, width: number, height: number) => {
     try {
       setIsSubmitting(true);
-
-      // Calculate size
       const mediaSize = blob.size;
       const metadataSize = estimateMetadataSize(formData);
       const totalSize = mediaSize + metadataSize;
 
-      // Check storage
       await ensureStorageSpace(totalSize);
 
-      // Create media record
       const mediaId = generateUUID();
       const media: Media = {
         mediaId,
@@ -53,32 +48,24 @@ const HomePage: React.FC = () => {
 
       await addMedia(media);
 
-      // Create record
       const record: Record = {
         id: generateUUID(),
         timestamp: Date.now(),
         form: { ...formData },
         mediaIds: [mediaId],
-        synced: false,
+        synced: 0, // 0 for false
         sizeBytes: totalSize,
       };
 
       await addRecord(record);
-
-      // Queue for upload
       await saveAndQueueRecord(record.id);
-
-      // Show notification
       await showLocalNotification(
         'Photo Captured',
         notificationTemplates.recordSaved(record.id)
       );
 
-      // Reset form and close camera
       setFormData({});
       setShowCamera(false);
-
-      // Navigate to records
       navigate('/records');
     } catch (error) {
       console.error('Failed to save photo:', error);
@@ -96,16 +83,12 @@ const HomePage: React.FC = () => {
   ) => {
     try {
       setIsSubmitting(true);
-
-      // Calculate size
       const mediaSize = blob.size + thumbnailBlob.size;
       const metadataSize = estimateMetadataSize(formData);
       const totalSize = mediaSize + metadataSize;
 
-      // Check storage
       await ensureStorageSpace(totalSize);
 
-      // Create media record
       const mediaId = generateUUID();
       const media: Media = {
         mediaId,
@@ -121,32 +104,24 @@ const HomePage: React.FC = () => {
 
       await addMedia(media);
 
-      // Create record
       const record: Record = {
         id: generateUUID(),
         timestamp: Date.now(),
         form: { ...formData },
         mediaIds: [mediaId],
-        synced: false,
+        synced: 0, // 0 for false
         sizeBytes: totalSize,
       };
 
       await addRecord(record);
-
-      // Queue for upload
       await saveAndQueueRecord(record.id);
-
-      // Show notification
       await showLocalNotification(
         'Video Recorded',
         notificationTemplates.recordSaved(record.id)
       );
 
-      // Reset form and close camera
       setFormData({});
       setShowCamera(false);
-
-      // Navigate to records
       navigate('/records');
     } catch (error) {
       console.error('Failed to save video:', error);
@@ -224,7 +199,6 @@ const HomePage: React.FC = () => {
   );
 };
 
-// Records page
 const RecordsPage: React.FC = () => {
   const [selectedRecord, setSelectedRecord] = useState<Record | null>(null);
 
@@ -243,7 +217,6 @@ const RecordsPage: React.FC = () => {
   );
 };
 
-// Settings page
 const SettingsPage: React.FC = () => {
   return (
     <div className="settings-page">
@@ -252,22 +225,19 @@ const SettingsPage: React.FC = () => {
   );
 };
 
-// Main App component
 function App() {
   const [storageWarning, setStorageWarning] = useState(false);
 
   useEffect(() => {
-    // Initialize database
     initDB().catch(console.error);
 
-    // Check storage periodically
     const checkStorage = async () => {
       const warning = await isStorageWarning();
       setStorageWarning(warning);
     };
 
     checkStorage();
-    const interval = setInterval(checkStorage, 60000); // Check every minute
+    const interval = setInterval(checkStorage, 60000); 
 
     return () => clearInterval(interval);
   }, []);

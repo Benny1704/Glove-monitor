@@ -1,5 +1,3 @@
-// Core data types for the monitoring application
-
 export interface Media {
   mediaId: string;
   type: 'photo' | 'video';
@@ -10,7 +8,7 @@ export interface Media {
   deviceId?: string;
   width?: number;
   height?: number;
-  thumbnailBlob?: Blob; // For video thumbnails
+  thumbnailBlob?: Blob;
 }
 
 export interface FormData {
@@ -29,7 +27,8 @@ export interface Record {
   form: FormData;
   mediaIds: string[];
   location?: Location;
-  synced: boolean;
+  // Changed from boolean to number for IndexedDB compatibility (0 = false, 1 = true)
+  synced: number; 
   sizeBytes: number;
   uploadAttempts?: number;
   lastUploadAttempt?: number;
@@ -89,13 +88,11 @@ export interface PushSubscriptionData {
   };
 }
 
-// Service Worker message types
 export interface SWMessage {
   type: 'SKIP_WAITING' | 'CLIENTS_CLAIM' | 'CACHE_URLS' | 'CLEAR_CACHE';
   payload?: any;
 }
 
-// Upload response from server
 export interface UploadResponse {
   success: boolean;
   recordId: string;

@@ -8,7 +8,7 @@ import {
   isStoragePersisted,
 } from '../services/storageManager';
 import { clearAllData } from '../services/indexedDB';
-import { StorageStats, StorageSettings as Settings } from '../types';
+import type { StorageStats, StorageSettings as Settings } from '../types';
 import { formatBytes } from '../utils/compression';
 
 export const StorageSettings: React.FC = () => {

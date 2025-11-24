@@ -9,7 +9,7 @@ import {
   VideoRecorder,
   generateVideoThumbnail,
 } from '../services/cameraService';
-import { DeviceInfo, CameraCapabilities } from '../types';
+import type { DeviceInfo, CameraCapabilities } from '../types';
 
 interface CameraProps {
   onPhotoCapture: (blob: Blob, width: number, height: number) => void;

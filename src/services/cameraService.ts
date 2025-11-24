@@ -1,4 +1,4 @@
-import { CameraCapabilities, DeviceInfo } from '../types';
+import type { CameraCapabilities, DeviceInfo } from './../types/index';
 
 // Check if camera is supported
 export function isCameraSupported(): boolean {
