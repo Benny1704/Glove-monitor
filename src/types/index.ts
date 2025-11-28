@@ -1,18 +1,18 @@
-export interface Media {
+export interface MediaMetadata {
   mediaId: string;
-  type: 'photo' | 'video';
-  blob: Blob;
+  type: 'photo' | 'video' | 'file';
   mimeType: string;
   size: number;
   createdAt: number;
-  deviceId?: string;
+  fileName: string; // Reference to OPFS file
+  thumbnailFileName?: string; // Reference to OPFS file for video/image thumbs
+  originalName?: string; // Original filename for uploads
   width?: number;
   height?: number;
-  thumbnailBlob?: Blob;
 }
 
 export interface FormData {
-  [key: string]: string | number;
+  [key: string]: string | number | boolean | null;
 }
 
 export interface Location {
@@ -25,10 +25,9 @@ export interface Record {
   id: string;
   timestamp: number;
   form: FormData;
-  mediaIds: string[];
+  media: MediaMetadata[]; // Embedded metadata
   location?: Location;
-  // Changed from boolean to number for IndexedDB compatibility (0 = false, 1 = true)
-  synced: number; 
+  synced: number; // 0 = false, 1 = true
   sizeBytes: number;
   uploadAttempts?: number;
   lastUploadAttempt?: number;
@@ -45,8 +44,6 @@ export interface UploadQueueItem {
 export interface StorageStats {
   usage: number;
   quota: number;
-  indexedDBSize: number;
-  cacheSize: number;
   percentUsed: number;
 }
 
@@ -57,12 +54,11 @@ export interface StorageSettings {
   autoEvict: boolean;
 }
 
-export interface CameraConstraints {
-  deviceId?: string;
-  facingMode?: 'user' | 'environment';
-  width?: number;
-  height?: number;
-  aspectRatio?: number;
+export interface DeviceInfo {
+  deviceId: string;
+  label: string;
+  kind: MediaDeviceKind;
+  groupId: string;
 }
 
 export interface CameraCapabilities {
@@ -71,26 +67,6 @@ export interface CameraCapabilities {
   focusMode?: boolean;
   exposureMode?: boolean;
   whiteBalanceMode?: boolean;
-}
-
-export interface DeviceInfo {
-  deviceId: string;
-  label: string;
-  kind: MediaDeviceKind;
-  groupId: string;
-}
-
-export interface PushSubscriptionData {
-  endpoint: string;
-  keys: {
-    p256dh: string;
-    auth: string;
-  };
-}
-
-export interface SWMessage {
-  type: 'SKIP_WAITING' | 'CLIENTS_CLAIM' | 'CACHE_URLS' | 'CLEAR_CACHE';
-  payload?: any;
 }
 
 export interface UploadResponse {

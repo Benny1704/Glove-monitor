@@ -5,13 +5,13 @@ import { RecordList } from './components/RecordList';
 import { RecordDetail } from './components/RecordDetail';
 import { StorageSettings } from './components/StorageSettings';
 import { OfflineIndicator } from './components/OfflineIndicator';
+import { FileUploader } from './components/FileUploader'; // New import
 import { AppProvider } from './context/AppContext';
-import { initDB, addRecord, addMedia } from './services/indexedDB';
+import { initDB } from './services/indexedDB';
 import { ensureStorageSpace, isStorageWarning } from './services/storageManager';
-import { saveAndQueueRecord } from './services/uploadManager';
+import { createRecord } from './services/dataManager'; // New import
 import { showLocalNotification, notificationTemplates } from './services/notificationService';
-import type { Record, Media, FormData as RecordFormData } from './types';
-import { generateUUID } from './utils/uuid';
+import type { Record, FormData as RecordFormData } from './types';
 import { estimateMetadataSize } from './utils/compression';
 import './index.css';
 
@@ -25,42 +25,23 @@ const HomePage: React.FC = () => {
     setFormData((prev) => ({ ...prev, [key]: value }));
   };
 
-  const handlePhotoCapture = async (blob: Blob, width: number, height: number) => {
+  // Unified handler for all file types
+  const processFiles = async (files: Array<{ blob: Blob; type: 'photo' | 'video' | 'file'; thumbnail?: Blob; originalName?: string }>) => {
     try {
       setIsSubmitting(true);
-      const mediaSize = blob.size;
-      const metadataSize = estimateMetadataSize(formData);
-      const totalSize = mediaSize + metadataSize;
+      
+      // Calculate total size required
+      let totalSize = estimateMetadataSize(formData);
+      files.forEach(f => totalSize += f.blob.size + (f.thumbnail?.size || 0));
 
+      // Ensure we have space in OPFS
       await ensureStorageSpace(totalSize);
 
-      const mediaId = generateUUID();
-      const media: Media = {
-        mediaId,
-        type: 'photo',
-        blob,
-        mimeType: blob.type,
-        size: blob.size,
-        createdAt: Date.now(),
-        width,
-        height,
-      };
+      // Save everything using the new Data Manager
+      const record = await createRecord(formData, files);
 
-      await addMedia(media);
-
-      const record: Record = {
-        id: generateUUID(),
-        timestamp: Date.now(),
-        form: { ...formData },
-        mediaIds: [mediaId],
-        synced: 0, // 0 for false
-        sizeBytes: totalSize,
-      };
-
-      await addRecord(record);
-      await saveAndQueueRecord(record.id);
       await showLocalNotification(
-        'Photo Captured',
+        'Record Saved',
         notificationTemplates.recordSaved(record.id)
       );
 
@@ -68,72 +49,28 @@ const HomePage: React.FC = () => {
       setShowCamera(false);
       navigate('/records');
     } catch (error) {
-      console.error('Failed to save photo:', error);
-      alert('Failed to save photo: ' + (error as Error).message);
+      console.error('Failed to save record:', error);
+      alert('Failed to save record: ' + (error as Error).message);
     } finally {
       setIsSubmitting(false);
     }
   };
 
-  const handleVideoCapture = async (
-    blob: Blob,
-    thumbnailBlob: Blob,
-    width: number,
-    height: number
-  ) => {
-    try {
-      setIsSubmitting(true);
-      const mediaSize = blob.size + thumbnailBlob.size;
-      const metadataSize = estimateMetadataSize(formData);
-      const totalSize = mediaSize + metadataSize;
-
-      await ensureStorageSpace(totalSize);
-
-      const mediaId = generateUUID();
-      const media: Media = {
-        mediaId,
-        type: 'video',
-        blob,
-        mimeType: blob.type,
-        size: blob.size,
-        createdAt: Date.now(),
-        width,
-        height,
-        thumbnailBlob,
-      };
-
-      await addMedia(media);
-
-      const record: Record = {
-        id: generateUUID(),
-        timestamp: Date.now(),
-        form: { ...formData },
-        mediaIds: [mediaId],
-        synced: 0, // 0 for false
-        sizeBytes: totalSize,
-      };
-
-      await addRecord(record);
-      await saveAndQueueRecord(record.id);
-      await showLocalNotification(
-        'Video Recorded',
-        notificationTemplates.recordSaved(record.id)
-      );
-
-      setFormData({});
-      setShowCamera(false);
-      navigate('/records');
-    } catch (error) {
-      console.error('Failed to save video:', error);
-      alert('Failed to save video: ' + (error as Error).message);
-    } finally {
-      setIsSubmitting(false);
-    }
+  const handlePhotoCapture = async (blob: Blob, _width: number, _height: number) => {
+    await processFiles([{ blob, type: 'photo' }]);
   };
 
-  const handleCameraError = (error: Error) => {
-    console.error('Camera error:', error);
-    alert('Camera error: ' + error.message);
+  const handleVideoCapture = async (blob: Blob, thumbnailBlob: Blob, _width: number, _height: number) => {
+    await processFiles([{ blob, type: 'video', thumbnail: thumbnailBlob }]);
+  };
+
+  const handleFileUpload = async (fileList: FileList) => {
+    const files = Array.from(fileList).map(file => ({
+      blob: file,
+      type: 'file' as const,
+      originalName: file.name
+    }));
+    await processFiles(files);
   };
 
   return (
@@ -145,7 +82,7 @@ const HomePage: React.FC = () => {
           <label>Title</label>
           <input
             type="text"
-            value={formData.title || ''}
+            value={String(formData.title || '')}
             onChange={(e) => handleFormChange('title', e.target.value)}
             placeholder="Enter record title"
           />
@@ -154,7 +91,7 @@ const HomePage: React.FC = () => {
         <div className="form-group">
           <label>Description</label>
           <textarea
-            value={formData.description || ''}
+            value={String(formData.description || '')}
             onChange={(e) => handleFormChange('description', e.target.value)}
             placeholder="Enter description"
             rows={3}
@@ -165,7 +102,7 @@ const HomePage: React.FC = () => {
           <label>Value (Number)</label>
           <input
             type="number"
-            value={formData.value || ''}
+            value={String(formData.value || '')}
             onChange={(e) => handleFormChange('value', parseFloat(e.target.value) || 0)}
             placeholder="Enter numeric value"
           />
@@ -178,6 +115,8 @@ const HomePage: React.FC = () => {
         >
           {showCamera ? '📷 Hide Camera' : '📷 Open Camera'}
         </button>
+
+        <FileUploader onFileSelect={handleFileUpload} disabled={isSubmitting} />
       </div>
 
       {showCamera && (
@@ -185,7 +124,7 @@ const HomePage: React.FC = () => {
           <Camera
             onPhotoCapture={handlePhotoCapture}
             onVideoCapture={handleVideoCapture}
-            onError={handleCameraError}
+            onError={(e) => alert(e.message)}
           />
         </div>
       )}
@@ -204,9 +143,7 @@ const RecordsPage: React.FC = () => {
 
   return (
     <div className="records-page">
-      <RecordList
-        onRecordSelect={setSelectedRecord}
-      />
+      <RecordList onRecordSelect={setSelectedRecord} />
       {selectedRecord && (
         <RecordDetail
           record={selectedRecord}
@@ -217,28 +154,23 @@ const RecordsPage: React.FC = () => {
   );
 };
 
-const SettingsPage: React.FC = () => {
-  return (
-    <div className="settings-page">
-      <StorageSettings />
-    </div>
-  );
-};
+const SettingsPage: React.FC = () => (
+  <div className="settings-page">
+    <StorageSettings />
+  </div>
+);
 
 function App() {
   const [storageWarning, setStorageWarning] = useState(false);
 
   useEffect(() => {
     initDB().catch(console.error);
-
     const checkStorage = async () => {
       const warning = await isStorageWarning();
       setStorageWarning(warning);
     };
-
     checkStorage();
     const interval = setInterval(checkStorage, 60000); 
-
     return () => clearInterval(interval);
   }, []);
 
@@ -247,7 +179,6 @@ function App() {
       <BrowserRouter>
         <div className="app">
           <OfflineIndicator />
-
           {storageWarning && (
             <div className="storage-warning">
               ⚠️ Storage is running low. Consider clearing old data.
@@ -256,15 +187,9 @@ function App() {
           )}
 
           <nav className="main-nav">
-            <Link to="/" className="nav-link">
-              📷 Capture
-            </Link>
-            <Link to="/records" className="nav-link">
-              📁 Records
-            </Link>
-            <Link to="/settings" className="nav-link">
-              ⚙️ Settings
-            </Link>
+            <Link to="/" className="nav-link">📷 Capture</Link>
+            <Link to="/records" className="nav-link">📁 Records</Link>
+            <Link to="/settings" className="nav-link">⚙️ Settings</Link>
           </nav>
 
           <main className="main-content">

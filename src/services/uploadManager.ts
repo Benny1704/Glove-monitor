@@ -1,11 +1,5 @@
-import {
-  getUploadQueue,
-  getRecord,
-  getMedia,
-  updateRecord,
-  addToUploadQueue,
-  deleteUploadQueueItem,
-} from './indexedDB';
+import { getUploadQueue, getRecord, addToUploadQueue, deleteUploadQueueItem, updateRecord } from './indexedDB';
+import { getMediaBlob } from './dataManager';
 import type { UploadQueueItem, UploadResponse } from '../types';
 
 const UPLOAD_ENDPOINT = '/api/upload'; 
@@ -45,7 +39,6 @@ class UploadManager {
       
       for (const item of queue) {
         if (item.nextRetryAt && item.nextRetryAt > Date.now()) continue;
-
         if (item.retryCount >= MAX_RETRIES) {
           console.error('Max retries reached for record:', item.recordId);
           continue;
@@ -83,17 +76,22 @@ class UploadManager {
       formData.append('location', JSON.stringify(record.location));
     }
 
-    for (let i = 0; i < record.mediaIds.length; i++) {
-      const mediaId = record.mediaIds[i];
-      const media = await getMedia(mediaId);
-      
-      if (media) {
-        const filename = `${media.type}_${i}.${media.mimeType.split('/')[1]}`;
-        formData.append('media', media.blob, filename);
-        
-        if (media.type === 'video' && media.thumbnailBlob) {
-          formData.append('thumbnails', media.thumbnailBlob, `thumb_${i}.jpg`);
+    // Read files from OPFS and append to FormData
+    for (let i = 0; i < record.media.length; i++) {
+      const meta = record.media[i];
+      try {
+        const blob = await getMediaBlob(meta.fileName);
+        // Use original name if available, otherwise generate one based on type and index
+        const filename = meta.originalName || `${meta.type}_${i}.${meta.mimeType.split('/')[1]}`;
+        formData.append('media', blob, filename);
+
+        if (meta.thumbnailFileName) {
+          const thumbBlob = await getMediaBlob(meta.thumbnailFileName);
+          formData.append('thumbnails', thumbBlob, `thumb_${i}.jpg`);
         }
+      } catch (err) {
+        console.error(`Failed to load file ${meta.fileName} for upload`, err);
+        throw new Error(`Media file missing: ${meta.fileName}`);
       }
     }
 
@@ -113,7 +111,7 @@ class UploadManager {
       throw new Error(result.error || 'Upload failed');
     }
 
-    // Mark record as synced using 1 (true)
+    // Update record status
     record.synced = 1;
     record.uploadAttempts = (record.uploadAttempts || 0) + 1;
     record.lastUploadAttempt = Date.now();
@@ -132,17 +130,6 @@ class UploadManager {
     }, delay);
 
     this.retryTimeouts.set(recordId, timeoutId);
-  }
-
-  cancelAllRetries(): void {
-    for (const timeoutId of this.retryTimeouts.values()) {
-      clearTimeout(timeoutId);
-    }
-    this.retryTimeouts.clear();
-  }
-
-  isUploading(): boolean {
-    return this.isProcessing;
   }
 }
 
