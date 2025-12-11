@@ -1,140 +1,80 @@
 import React, { useState, useEffect } from 'react';
-import { BrowserRouter, Routes, Route, Link, useNavigate } from 'react-router-dom';
-import { Camera } from './components/Camera';
+import { BrowserRouter, Routes, Route, Link, useLocation, useNavigate } from 'react-router-dom';
+import { AnimatePresence, motion } from 'framer-motion';
+import { Settings, Plus, AlertTriangle, ChevronLeft } from 'lucide-react'; // Lucide Icons
 import { RecordList } from './components/RecordList';
 import { RecordDetail } from './components/RecordDetail';
 import { StorageSettings } from './components/StorageSettings';
 import { OfflineIndicator } from './components/OfflineIndicator';
-import { FileUploader } from './components/FileUploader'; // New import
+import { CaptureView } from './components/CaptureView';
 import { AppProvider } from './context/AppContext';
 import { initDB } from './services/indexedDB';
-import { ensureStorageSpace, isStorageWarning } from './services/storageManager';
-import { createRecord } from './services/dataManager'; // New import
-import { showLocalNotification, notificationTemplates } from './services/notificationService';
-import type { Record, FormData as RecordFormData } from './types';
-import { estimateMetadataSize } from './utils/compression';
+import { isStorageWarning } from './services/storageManager';
+import type { Record } from './types';
 import './index.css';
 
-const HomePage: React.FC = () => {
+// Animated FAB
+const FloatingActionButton: React.FC = () => {
+  const location = useLocation();
   const navigate = useNavigate();
-  const [showCamera, setShowCamera] = useState(false);
-  const [formData, setFormData] = useState<RecordFormData>({});
-  const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const handleFormChange = (key: string, value: string | number) => {
-    setFormData((prev) => ({ ...prev, [key]: value }));
-  };
-
-  // Unified handler for all file types
-  const processFiles = async (files: Array<{ blob: Blob; type: 'photo' | 'video' | 'file'; thumbnail?: Blob; originalName?: string }>) => {
-    try {
-      setIsSubmitting(true);
-      
-      // Calculate total size required
-      let totalSize = estimateMetadataSize(formData);
-      files.forEach(f => totalSize += f.blob.size + (f.thumbnail?.size || 0));
-
-      // Ensure we have space in OPFS
-      await ensureStorageSpace(totalSize);
-
-      // Save everything using the new Data Manager
-      const record = await createRecord(formData, files);
-
-      await showLocalNotification(
-        'Record Saved',
-        notificationTemplates.recordSaved(record.id)
-      );
-
-      setFormData({});
-      setShowCamera(false);
-      navigate('/records');
-    } catch (error) {
-      console.error('Failed to save record:', error);
-      alert('Failed to save record: ' + (error as Error).message);
-    } finally {
-      setIsSubmitting(false);
-    }
-  };
-
-  const handlePhotoCapture = async (blob: Blob, _width: number, _height: number) => {
-    await processFiles([{ blob, type: 'photo' }]);
-  };
-
-  const handleVideoCapture = async (blob: Blob, thumbnailBlob: Blob, _width: number, _height: number) => {
-    await processFiles([{ blob, type: 'video', thumbnail: thumbnailBlob }]);
-  };
-
-  const handleFileUpload = async (fileList: FileList) => {
-    const files = Array.from(fileList).map(file => ({
-      blob: file,
-      type: 'file' as const,
-      originalName: file.name
-    }));
-    await processFiles(files);
-  };
+  // Hide FAB on capture and settings pages
+  if (location.pathname !== '/') return null;
 
   return (
-    <div className="home-page">
-      <div className="form-section">
-        <h2>Monitoring Record</h2>
-        
-        <div className="form-group">
-          <label>Title</label>
-          <input
-            type="text"
-            value={String(formData.title || '')}
-            onChange={(e) => handleFormChange('title', e.target.value)}
-            placeholder="Enter record title"
-          />
-        </div>
+    <div className="fab-container">
+      <motion.button
+        className="fab"
+        onClick={() => navigate('/capture')}
+        aria-label="Capture New"
+        initial={{ scale: 0, rotate: 90 }}
+        animate={{ scale: 1, rotate: 0 }}
+        exit={{ scale: 0, rotate: 90 }}
+        whileHover={{ scale: 1.05 }}
+        whileTap={{ scale: 0.9 }}
+        transition={{ type: "spring", stiffness: 400, damping: 17 }}
+      >
+        <Plus size={28} strokeWidth={2.5} />
+      </motion.button>
+    </div>
+  );
+};
 
-        <div className="form-group">
-          <label>Description</label>
-          <textarea
-            value={String(formData.description || '')}
-            onChange={(e) => handleFormChange('description', e.target.value)}
-            placeholder="Enter description"
-            rows={3}
-          />
-        </div>
+// Dynamic Header
+const Header: React.FC = () => {
+  const location = useLocation();
+  const navigate = useNavigate();
+  const isHome = location.pathname === '/';
 
-        <div className="form-group">
-          <label>Value (Number)</label>
-          <input
-            type="number"
-            value={String(formData.value || '')}
-            onChange={(e) => handleFormChange('value', parseFloat(e.target.value) || 0)}
-            placeholder="Enter numeric value"
-          />
-        </div>
-
-        <button
-          className="capture-btn"
-          onClick={() => setShowCamera(!showCamera)}
-          disabled={isSubmitting}
-        >
-          {showCamera ? '📷 Hide Camera' : '📷 Open Camera'}
-        </button>
-
-        <FileUploader onFileSelect={handleFileUpload} disabled={isSubmitting} />
+  return (
+    <header className="app-header">
+      <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+        {!isHome && (
+          <motion.button 
+            className="icon-btn" 
+            onClick={() => navigate(-1)}
+            initial={{ opacity: 0, x: -10 }}
+            animate={{ opacity: 1, x: 0 }}
+            whileTap={{ scale: 0.9 }}
+          >
+            <ChevronLeft size={24} />
+          </motion.button>
+        )}
+        <h1 className="app-title">
+          {location.pathname === '/capture' ? 'New Record' : 
+           location.pathname === '/settings' ? 'Settings' : 
+           'Glove Monitor'}
+        </h1>
       </div>
 
-      {showCamera && (
-        <div className="camera-section">
-          <Camera
-            onPhotoCapture={handlePhotoCapture}
-            onVideoCapture={handleVideoCapture}
-            onError={(e) => alert(e.message)}
-          />
-        </div>
+      {isHome && (
+        <Link to="/settings">
+          <motion.div className="icon-btn" whileTap={{ scale: 0.9, rotate: 45 }}>
+            <Settings size={24} />
+          </motion.div>
+        </Link>
       )}
-
-      {isSubmitting && (
-        <div className="loading-overlay">
-          <div className="spinner">Saving...</div>
-        </div>
-      )}
-    </div>
+    </header>
   );
 };
 
@@ -142,7 +82,12 @@ const RecordsPage: React.FC = () => {
   const [selectedRecord, setSelectedRecord] = useState<Record | null>(null);
 
   return (
-    <div className="records-page">
+    <motion.div 
+      className="records-page"
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+    >
       <RecordList onRecordSelect={setSelectedRecord} />
       {selectedRecord && (
         <RecordDetail
@@ -150,15 +95,24 @@ const RecordsPage: React.FC = () => {
           onClose={() => setSelectedRecord(null)}
         />
       )}
-    </div>
+    </motion.div>
   );
 };
 
-const SettingsPage: React.FC = () => (
-  <div className="settings-page">
-    <StorageSettings />
-  </div>
-);
+// Wrapper to animate route changes
+const AnimatedRoutes: React.FC = () => {
+  const location = useLocation();
+
+  return (
+    <AnimatePresence mode="wait">
+      <Routes location={location} key={location.pathname}>
+        <Route path="/" element={<RecordsPage />} />
+        <Route path="/capture" element={<CaptureView />} />
+        <Route path="/settings" element={<StorageSettings />} />
+      </Routes>
+    </AnimatePresence>
+  );
+};
 
 function App() {
   const [storageWarning, setStorageWarning] = useState(false);
@@ -170,35 +124,38 @@ function App() {
       setStorageWarning(warning);
     };
     checkStorage();
-    const interval = setInterval(checkStorage, 60000); 
+    const interval = setInterval(checkStorage, 60000);
     return () => clearInterval(interval);
   }, []);
 
   return (
     <AppProvider>
       <BrowserRouter>
-        <div className="app">
+        <div className="app-container">
           <OfflineIndicator />
-          {storageWarning && (
-            <div className="storage-warning">
-              ⚠️ Storage is running low. Consider clearing old data.
-              <Link to="/settings">Go to Settings</Link>
-            </div>
-          )}
+          <Header />
 
-          <nav className="main-nav">
-            <Link to="/" className="nav-link">📷 Capture</Link>
-            <Link to="/records" className="nav-link">📁 Records</Link>
-            <Link to="/settings" className="nav-link">⚙️ Settings</Link>
-          </nav>
+          {/* Animated Storage Warning */}
+          <AnimatePresence>
+            {storageWarning && (
+              <motion.div
+                className="storage-warning-banner"
+                initial={{ height: 0, opacity: 0, y: -20 }}
+                animate={{ height: 'auto', opacity: 1, y: 0 }}
+                exit={{ height: 0, opacity: 0, y: -20 }}
+              >
+                <AlertTriangle size={20} />
+                <span>Storage running low</span>
+                <Link to="/settings">Manage</Link>
+              </motion.div>
+            )}
+          </AnimatePresence>
 
           <main className="main-content">
-            <Routes>
-              <Route path="/" element={<HomePage />} />
-              <Route path="/records" element={<RecordsPage />} />
-              <Route path="/settings" element={<SettingsPage />} />
-            </Routes>
+            <AnimatedRoutes />
           </main>
+
+          <FloatingActionButton />
         </div>
       </BrowserRouter>
     </AppProvider>

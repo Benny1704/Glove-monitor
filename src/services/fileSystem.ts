@@ -58,3 +58,28 @@ export async function clearOPFS(): Promise<void> {
     await root.removeEntry(entry.name);
   }
 }
+
+/**
+ * Calculate total size and count of files in OPFS
+ */
+export async function getOPFSStats(): Promise<{ size: number; count: number }> {
+  let size = 0;
+  let count = 0;
+
+  try {
+    const root = await navigator.storage.getDirectory();
+    // @ts-expect-error - values/entries iterator
+    for await (const entry of root.values()) {
+      if (entry.kind === 'file') {
+        const fileHandle = await root.getFileHandle(entry.name);
+        const file = await fileHandle.getFile();
+        size += file.size;
+        count++;
+      }
+    }
+  } catch (e) {
+    console.warn('Error calculating OPFS stats:', e);
+  }
+
+  return { size, count };
+}

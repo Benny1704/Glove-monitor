@@ -41,17 +41,35 @@ export interface UploadQueueItem {
   nextRetryAt?: number;
 }
 
+export interface StorageBreakdown {
+  opfsBytes: number;
+  idbBytes: number;
+  cacheBytes: number;
+  systemBytes: number; // Overhead/Other
+}
+
 export interface StorageStats {
   usage: number;
   quota: number;
   percentUsed: number;
+  breakdown?: StorageBreakdown;
+  recordCount: number;
+  fileCount: number;
 }
 
 export interface StorageSettings {
-  maxStorageMB?: number;
-  maxStoragePercent?: number;
+  // Limits
+  maxStorageMB: number; // 0 = unlimited (up to browser quota)
   warnThresholdPercent: number;
+  
+  // Retention
   autoEvict: boolean;
+  retentionDays: number; // 0 = keep forever
+  deleteSyncedOnly: boolean; // If true, only delete records that are synced
+  
+  // Quality / Optimization
+  imageCompressionQuality: number; // 0.1 to 1.0
+  videoThumbnailQuality: number; // 0.1 to 1.0
 }
 
 export interface DeviceInfo {

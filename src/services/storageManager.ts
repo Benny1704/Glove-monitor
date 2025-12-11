@@ -1,35 +1,78 @@
-import type { StorageStats, StorageSettings } from '../types';
-import { getSetting, setSetting, getOldestRecords } from './indexedDB';
+import type { StorageStats, StorageSettings, StorageBreakdown, Record } from '../types';
+import { getSetting, setSetting, getOldestRecords, getAllRecords } from './indexedDB';
 import { removeRecord } from './dataManager';
+import { getOPFSStats } from './fileSystem';
+import { estimateMetadataSize } from '../utils/compression';
 
 const DEFAULT_SETTINGS: StorageSettings = {
-  maxStoragePercent: 80, 
+  maxStorageMB: 0, // 0 = unlimited
   warnThresholdPercent: 80,
-  autoEvict: true,
+  autoEvict: false,
+  retentionDays: 0, // 0 = forever
+  deleteSyncedOnly: true,
+  imageCompressionQuality: 0.8,
+  videoThumbnailQuality: 0.7,
 };
 
 export async function getStorageEstimate(): Promise<StorageStats> {
   let usage = 0;
   let quota = 0;
+  let opfsStats = { size: 0, count: 0 };
+  let recordCount = 0;
+  let idbBytes = 0;
 
+  // Get Browser Estimate
   if ('storage' in navigator && 'estimate' in navigator.storage) {
     const estimate = await navigator.storage.estimate();
     usage = estimate.usage || 0;
     quota = estimate.quota || 0;
   }
 
-  const percentUsed = quota > 0 ? (usage / quota) * 100 : 0;
+  // Get Specific Breakdowns
+  try {
+    const [opfs, records] = await Promise.all([
+      getOPFSStats(),
+      getAllRecords()
+    ]);
+    
+    opfsStats = opfs;
+    recordCount = records.length;
+    
+    // Estimate IDB size based on JSON size of records
+    idbBytes = estimateMetadataSize(records);
+  } catch (e) {
+    console.warn('Failed to get detailed stats', e);
+  }
+
+  // Calculate Cache Storage (Service Worker caches)
+  let cacheBytes = 0;
+  if ('caches' in window) {
+    // Note: detailed cache size is tricky without iterating everything, 
+    // we deduce it from total usage - (opfs + idb) as an approximation
+    // or usageDetails if available (Chrome specific)
+    cacheBytes = Math.max(0, usage - (opfsStats.size + idbBytes));
+  }
+
+  const breakdown: StorageBreakdown = {
+    opfsBytes: opfsStats.size,
+    idbBytes: idbBytes,
+    cacheBytes: cacheBytes,
+    systemBytes: Math.max(0, usage - (opfsStats.size + idbBytes + cacheBytes))
+  };
 
   return {
     usage,
     quota,
-    percentUsed,
+    percentUsed: quota > 0 ? (usage / quota) * 100 : 0,
+    breakdown,
+    recordCount,
+    fileCount: opfsStats.count
   };
 }
 
 export async function getStorageSettings(): Promise<StorageSettings> {
   const settings = await getSetting<StorageSettings>('storageSettings');
-  return settings || DEFAULT_SETTINGS;
+  return { ...DEFAULT_SETTINGS, ...settings };
 }
 
 export async function updateStorageSettings(settings: Partial<StorageSettings>): Promise<void> {
@@ -44,19 +87,46 @@ export async function isStorageWarning(): Promise<boolean> {
   return stats.percentUsed >= settings.warnThresholdPercent;
 }
 
+/**
+ * Runs the eviction policy based on settings.
+ * Can be called manually or before adding new files.
+ */
+export async function applyRetentionPolicy(): Promise<number> {
+  const settings = await getStorageSettings();
+  let deletedCount = 0;
+
+  // 1. Retention Days Policy
+  if (settings.retentionDays > 0) {
+    const cutoffDate = Date.now() - (settings.retentionDays * 24 * 60 * 60 * 1000);
+    const allRecords = await getAllRecords();
+    
+    for (const record of allRecords) {
+      // Skip if sync-only delete is enabled and record isn't synced
+      if (settings.deleteSyncedOnly && !record.synced) continue;
+
+      if (record.timestamp < cutoffDate) {
+        await removeRecord(record.id);
+        deletedCount++;
+      }
+    }
+  }
+
+  return deletedCount;
+}
+
 export async function ensureStorageSpace(requiredBytes: number): Promise<void> {
   const stats = await getStorageEstimate();
   const settings = await getStorageSettings();
   const projectedUsage = stats.usage + requiredBytes;
 
-  // Calculate limit
+  // 1. Determine the effective limit
   let maxAllowedBytes = stats.quota;
-  if (settings.maxStorageMB) {
-    maxAllowedBytes = settings.maxStorageMB * 1024 * 1024;
-  } else if (settings.maxStoragePercent) {
-    maxAllowedBytes = (stats.quota * settings.maxStoragePercent) / 100;
+  if (settings.maxStorageMB > 0) {
+    const userLimit = settings.maxStorageMB * 1024 * 1024;
+    maxAllowedBytes = Math.min(stats.quota, userLimit);
   }
 
+  // 2. Check if we are within limits
   if (projectedUsage <= maxAllowedBytes) {
     return; 
   }
@@ -64,34 +134,35 @@ export async function ensureStorageSpace(requiredBytes: number): Promise<void> {
   if (!settings.autoEvict) {
     throw new Error(
       `Storage limit exceeded. Need ${requiredBytes} bytes but only ${
-        maxAllowedBytes - stats.usage
-      } bytes available.`
+        Math.max(0, maxAllowedBytes - stats.usage)
+      } bytes available (User Limit: ${settings.maxStorageMB > 0 ? settings.maxStorageMB + 'MB' : 'Browser Quota'}).`
     );
   }
 
-  // Eviction logic
-  const bytesToFree = projectedUsage - maxAllowedBytes + (requiredBytes * 0.1); // 10% buffer
+  // 3. Eviction Logic
+  const bytesToFree = projectedUsage - maxAllowedBytes + (requiredBytes * 0.2); // 20% buffer
   let freedBytes = 0;
-  let evictedCount = 0;
-
-  const oldestRecords = await getOldestRecords(50);
+  
+  // Run retention policy first as it's the safest delete
+  await applyRetentionPolicy();
+  
+  // If we still need space, start deleting oldest
+  const oldestRecords = await getOldestRecords(100);
   
   for (const record of oldestRecords) {
     if (freedBytes >= bytesToFree) break;
 
-    // Prefer deleting synced records, but will delete unsynced if necessary to save app
-    // from crashing or being unable to work
+    // Protection: If strict sync delete is on, never delete unsynced even if full
+    if (settings.deleteSyncedOnly && !record.synced) continue;
+
     await removeRecord(record.id);
     freedBytes += record.sizeBytes;
-    evictedCount++;
   }
 
-  console.log(`Evicted ${evictedCount} records, freed ${freedBytes} bytes`);
-
-  // Double check
+  // Final check
   const updatedStats = await getStorageEstimate();
   if (updatedStats.usage + requiredBytes > maxAllowedBytes) {
-    throw new Error('Could not free enough storage space. Please delete items manually.');
+    throw new Error('Storage full. Auto-eviction could not free enough space (protected unsynced records).');
   }
 }
 
@@ -104,6 +175,8 @@ export async function clearCaches(): Promise<void> {
 
 export async function requestPersistentStorage(): Promise<boolean> {
   if ('storage' in navigator && 'persist' in navigator.storage) {
+    const isPersisted = await navigator.storage.persisted();
+    if (isPersisted) return true;
     return await navigator.storage.persist();
   }
   return false;
